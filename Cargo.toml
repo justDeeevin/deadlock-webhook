@@ -1,0 +1,12 @@
+[package]
+name = "deadlock-webhook"
+version = "1.0.0"
+edition = "2024"
+
+[dependencies]
+reqwest = "0.13.4"
+rss = "2.0.13"
+serenity = "0.12.5"
+tokio = { version = "1.52.3", features = ["macros", "rt"] }
+color-eyre = "0.6.5"
+scraper = "0.27.0"
