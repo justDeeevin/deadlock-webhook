@@ -1,3 +1,4 @@
+use aho_corasick::AhoCorasick;
 use scraper::ElementRef;
 
 const HEROES: &[&str] = &[
@@ -42,9 +43,21 @@ const HEROES: &[&str] = &[
 ];
 
 pub fn format(element: ElementRef) -> String {
-    element
-        .inner_html()
-        .replace("<br>", "")
-        .replace("<br>", "**")
-        .replace("</br>", "**")
+    format_inner(
+        AhoCorasick::new(["<br>", "<b>", "</b>"])
+            .unwrap()
+            .replace_all(&element.inner_html(), ["", "**", "**"].as_slice()),
+    )
+}
+
+pub fn format_steam(contents: &str) -> String {
+    format_inner(
+        AhoCorasick::new(["\\[", "[p]", "[/p]", "[b]", "[/b]", "[u]", "[/u]"])
+            .unwrap()
+            .replace_all(contents, ["[", "", "\n", "**", "**", "__", "__"].as_slice()),
+    )
+}
+
+fn format_inner(md: String) -> String {
+    md.replace("\n\n\n", "\n\n")
 }
