@@ -15,6 +15,11 @@ use steam_rs::Steam;
 const RSS_URL: &str = "https://forums.playdeadlock.com/forums/changelog.10/index.rss";
 const WEBHOOK_URL: &str = "https://discord.com/api/webhooks/1425590300511830177/sDy9U1TanKfR2xfljLJ4j-cA3Kgqqethl_be6J7Go7pDzu-mjhnVONgJo3bA2A28pprr";
 const DEADLOCK_APPID: u32 = 1422450;
+const SAVE_PATH: &str = if cfg!(debug_assertions) {
+    "./last-post"
+} else {
+    "/var/cache/deadlock-webhook/last-post"
+};
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> color_eyre::Result<()> {
@@ -52,6 +57,14 @@ async fn main() -> color_eyre::Result<()> {
         .attr("data-timestamp")
         .unwrap()
         .parse()?;
+
+    if timestamp
+        <= std::fs::read_to_string(SAVE_PATH)
+            .unwrap_or_else(|_| "0".to_string())
+            .parse()?
+    {
+        return Ok(());
+    }
 
     let body = latest_message
         .select(&Selector::parse("div.bbWrapper").unwrap())
@@ -100,6 +113,8 @@ async fn main() -> color_eyre::Result<()> {
     if dry {
         return Ok(());
     }
+
+    std::fs::write(SAVE_PATH, timestamp.to_string())?;
 
     let http = Http::new("");
     Webhook::from_url(&http, WEBHOOK_URL)
