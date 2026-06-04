@@ -1,5 +1,8 @@
+mod format;
+
+use format::format;
 use rss::Channel;
-use scraper::{ElementRef, Html, Selector};
+use scraper::{Html, Selector};
 use serenity::{
     builder::{CreateAllowedMentions, CreateEmbed, ExecuteWebhook},
     http::Http,
@@ -38,11 +41,9 @@ async fn main() -> color_eyre::Result<()> {
         .unwrap()
     };
 
-    let timestamp = latest_message
+    let time = latest_message
         .select(&Selector::parse("time").unwrap())
         .next()
-        .unwrap()
-        .attr("data-timestamp")
         .unwrap();
 
     let body = latest_message
@@ -56,24 +57,22 @@ async fn main() -> color_eyre::Result<()> {
     {
         todo!("steam announcement")
     } else {
-        get_contents(body)
+        format(body)
     };
 
     let mut req =
         ExecuteWebhook::new().allowed_mentions(CreateAllowedMentions::new().everyone(true));
     req = if content.len() <= 2000 {
-        req.content("@everyone\n\n".to_string() + &content)
-    } else if content.len() <= 4096 {
+        req.content(format!("@everyone\n\n{content}"))
+    } else {
         req.content("@everyone").embed(
             CreateEmbed::new()
                 .title(latest.title().unwrap_or("Deadlock Patch Notes"))
-                .description(content)
+                .description(&content[0..4096])
                 .url(url)
-                .timestamp(Timestamp::from_unix_timestamp(timestamp.parse()?)?)
+                .timestamp(Timestamp::parse(time.attr("datetime").unwrap())?)
                 .color(0xEFDEBF),
         )
-    } else {
-        todo!("too long!")
     };
 
     let http = Http::new("");
@@ -83,12 +82,4 @@ async fn main() -> color_eyre::Result<()> {
         .await?;
 
     Ok(())
-}
-
-fn get_contents(element: ElementRef) -> String {
-    element
-        .inner_html()
-        .replace("<br>", "\n")
-        .replace("<b>", "**")
-        .replace("</b>", "**")
 }
