@@ -29,6 +29,10 @@
           commonArgs
           // {
             cargoArtifacts = craneLib.buildDepsOnly commonArgs;
+            passthru.services.default = {
+              imports = [ ./service.nix ];
+              deadlock-webhook.package = deadlock-webhook;
+            };
           }
         );
       in
