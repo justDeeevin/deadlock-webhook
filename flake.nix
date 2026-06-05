@@ -51,5 +51,74 @@
           checks = self.checks.${system};
         };
       }
-    );
+    )
+    // {
+      nixosModules.default =
+        {
+          pkgs,
+          lib,
+          config,
+          ...
+        }:
+        {
+          options.services.deadlock-webhook = {
+            enable = lib.mkEnableOption "deadlock patch notes discord webhook notifier";
+            package = lib.mkOption {
+              type = lib.types.package;
+              description = "The package to run.";
+              default = self.packages.${pkgs.stdenv.hostPlatform.system}.default;
+              defaultText = "this flake's package";
+            };
+            role_id = lib.mkOption {
+              type = lib.types.nullOr lib.types.int;
+              description = "The role id to mention. If unset, the webhook will ping everyone.";
+              default = null;
+            };
+            webhook_url_file = lib.mkOption {
+              type = lib.types.nullOr lib.types.path;
+              description = "The file containing the webhook url.";
+              default = null;
+            };
+            webhook_url = lib.mkOption {
+              type = lib.types.nullOr lib.types.str;
+              description = "The webhook url. Setting this manually is insecure; prefer using webhook_url_file";
+              default = null;
+            };
+          };
+          config =
+            let
+              cfg = config.services.deadlock-webhook;
+            in
+            lib.mkIf cfg.enable {
+              assertions = [
+                {
+                  assertion = cfg.webhook_url != null || cfg.webhook_url_file != null;
+                  message = "Either webhook_url or webhook_url_file must be set.";
+                }
+              ];
+              systemd.services.deadlock-webhook = {
+                environment = {
+                  ROLE_ID = cfg.role_id;
+                  WEBHOOK_URL = lib.mkIf (cfg.webhook_url != null) cfg.webhook_url;
+                  WEBHOOK_URL_FILE = lib.mkIf (cfg.webhook_url_file != null) cfg.webhook_url_file;
+                };
+                serviceConfig = {
+                  ExecStart = lib.getExe cfg.package;
+                  Type = "oneshot";
+                  StateDirectory = "deadlock-webhook";
+                };
+              };
+              systemd.timers.deadlock-webhook = {
+                wantedBy = [ "timers.target" ];
+                timerConfig = {
+                  OnBootSec = "5min";
+                  OnUnitActiveSec = "4h";
+                  Persistent = true;
+
+                  Unit = "deadlock-webhook.service";
+                };
+              };
+            };
+        };
+    };
 }

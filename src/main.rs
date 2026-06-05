@@ -2,6 +2,7 @@ mod cli;
 mod format;
 
 use clap::Parser;
+use cli::Args;
 use format::{format_html, format_steam};
 use rss::Channel;
 use scraper::{Html, Selector};
@@ -11,9 +12,8 @@ use serenity::{
     http::Http,
     model::{Timestamp, webhook::Webhook},
 };
+use std::{env, fs};
 use steam_rs::Steam;
-
-use crate::cli::Args;
 
 const RSS_URL: &str = "https://forums.playdeadlock.com/forums/changelog.10/index.rss";
 const AVATAR_URL: &str = "https://project8-data.community.forum/assets/logo_alternate/icon.png";
@@ -28,10 +28,17 @@ const SAVE_PATH: &str = if cfg!(debug_assertions) {
 async fn main() -> color_eyre::Result<()> {
     color_eyre::install()?;
 
-    let webhook_url = std::env::var("WEBHOOK_URL").expect("WEBHOOK_URL not set");
-    let mention = std::env::var("ROLE_ID")
-        .map(|id| format!("<@&{id}>"))
-        .unwrap_or_else(|_| "@everyone".into());
+    let webhook_url = if let Ok(url) = env::var("WEBHOOK_URL") {
+        url
+    } else if let Ok(path) = env::var("WEBHOOK_URL_FILE") {
+        fs::read_to_string(path)?
+    } else {
+        panic!("No webhook URL provided");
+    };
+    let role_id = std::env::var("ROLE_ID")
+        .ok()
+        .map(|s| s.parse::<u64>())
+        .transpose()?;
     let args = Args::parse();
 
     let latest = Channel::read_from(reqwest::get(RSS_URL).await?.bytes().await?.as_ref())?
@@ -55,7 +62,7 @@ async fn main() -> color_eyre::Result<()> {
 
     if !args.force
         && timestamp
-            <= std::fs::read_to_string(SAVE_PATH)
+            <= fs::read_to_string(SAVE_PATH)
                 .unwrap_or_else(|_| "0".to_string())
                 .parse()?
     {
@@ -88,9 +95,18 @@ async fn main() -> color_eyre::Result<()> {
     };
 
     let mut req = ExecuteWebhook::new()
-        .allowed_mentions(CreateAllowedMentions::new().everyone(true))
+        .allowed_mentions(if let Some(id) = role_id {
+            CreateAllowedMentions::new().roles([id])
+        } else {
+            CreateAllowedMentions::new().everyone(true)
+        })
         .avatar_url(AVATAR_URL);
-    let plain_message_prepend = format!("{mention} **[Deadlock Patch Notes]({url})**\n\n");
+    let mention = if let Some(id) = role_id {
+        format!("<@&{id}>")
+    } else {
+        "@everyone".into()
+    };
+    let plain_message_prepend = format!("{mention} **[Deadlock Patch Notes]({url})**\n\n",);
     req = if content.len() <= 2000 - plain_message_prepend.len() {
         req.content(plain_message_prepend + &content)
             .flags(MessageFlags::SUPPRESS_EMBEDS)
@@ -113,7 +129,7 @@ async fn main() -> color_eyre::Result<()> {
         return Ok(());
     }
 
-    std::fs::write(SAVE_PATH, timestamp.to_string())?;
+    fs::write(SAVE_PATH, timestamp.to_string())?;
 
     let http = Http::new("");
     Webhook::from_url(&http, &webhook_url)
