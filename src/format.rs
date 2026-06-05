@@ -42,7 +42,7 @@ const HEROES: &[&str] = &[
     "Yamato",
 ];
 
-pub fn format(element: ElementRef) -> String {
+pub fn format_html(element: ElementRef) -> String {
     format_inner(
         AhoCorasick::new(["<br>", "<b>", "</b>"])
             .unwrap()
@@ -58,6 +58,7 @@ pub fn format_steam(contents: &str) -> String {
     )
 }
 
+// TODO: more advanced formatting
 fn format_inner(md: String) -> String {
     md.replace("\n\n\n", "\n\n")
 }
