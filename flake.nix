@@ -69,6 +69,11 @@
               default = self.packages.${pkgs.stdenv.hostPlatform.system}.default;
               defaultText = "this flake's package";
             };
+            period = lib.mkOption {
+              type = lib.types.str;
+              description = "The period between checks.";
+              default = "5min";
+            };
             role_id = lib.mkOption {
               type = lib.types.nullOr lib.types.int;
               description = "The role id to mention. If unset, the webhook will ping everyone.";
@@ -112,7 +117,7 @@
                 wantedBy = [ "timers.target" ];
                 timerConfig = {
                   OnBootSec = "5min";
-                  OnUnitActiveSec = "4h";
+                  OnUnitActiveSec = "5min";
                   Persistent = true;
 
                   Unit = "deadlock-webhook.service";
