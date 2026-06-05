@@ -1,11 +1,11 @@
-#[cfg(debug_assertions)]
 mod cli;
 mod format;
 
-use format::{format, format_steam};
+use format::{format_html, format_steam};
 use rss::Channel;
 use scraper::{Html, Selector};
 use serenity::{
+    all::MessageFlags,
     builder::{CreateAllowedMentions, CreateEmbed, ExecuteWebhook},
     http::Http,
     model::{Timestamp, webhook::Webhook},
@@ -13,7 +13,7 @@ use serenity::{
 use steam_rs::Steam;
 
 const RSS_URL: &str = "https://forums.playdeadlock.com/forums/changelog.10/index.rss";
-const WEBHOOK_URL: &str = "https://discord.com/api/webhooks/1425590300511830177/sDy9U1TanKfR2xfljLJ4j-cA3Kgqqethl_be6J7Go7pDzu-mjhnVONgJo3bA2A28pprr";
+const AVATAR_URL: &str = "https://project8-data.community.forum/assets/logo_alternate/icon.png";
 const DEADLOCK_APPID: u32 = 1422450;
 const SAVE_PATH: &str = if cfg!(debug_assertions) {
     "./last-post"
@@ -25,30 +25,22 @@ const SAVE_PATH: &str = if cfg!(debug_assertions) {
 async fn main() -> color_eyre::Result<()> {
     color_eyre::install()?;
 
-    #[cfg(debug_assertions)]
-    let cli::Args { dry, index } = <cli::Args as clap::Parser>::parse();
-    #[cfg(not(debug_assertions))]
-    // FIXME: Is the first entry always the latest?
-    let index = 0;
+    let webhook_url = std::env::var("WEBHOOK_URL").expect("WEBHOOK_URL not set");
+    let mention = std::env::var("ROLE_ID")
+        .map(|id| format!("<@&{id}>"))
+        .unwrap_or_else(|_| "@everyone".into());
+    let cli::Args { dry, index, force } = <cli::Args as clap::Parser>::parse();
 
     let latest = Channel::read_from(reqwest::get(RSS_URL).await?.bytes().await?.as_ref())?
         .items
         .remove(index);
-    let url = latest.link().unwrap();
+    let mut url = latest.link().unwrap();
 
     let page = Html::parse_document(&reqwest::get(url).await?.text().await?);
-
-    let latest_message = {
-        let message_selector = Selector::parse("div.message-main").unwrap();
-        let mut messages = page.select(&message_selector);
-
-        if latest.extensions["slash"]["comments"][0].value().unwrap() == "0" {
-            messages.next()
-        } else {
-            messages.next_back()
-        }
-        .unwrap()
-    };
+    let latest_message = page
+        .select(&Selector::parse("div.message-main").unwrap())
+        .next_back()
+        .unwrap();
 
     let timestamp = latest_message
         .select(&Selector::parse("time").unwrap())
@@ -58,10 +50,11 @@ async fn main() -> color_eyre::Result<()> {
         .unwrap()
         .parse()?;
 
-    if timestamp
-        <= std::fs::read_to_string(SAVE_PATH)
-            .unwrap_or_else(|_| "0".to_string())
-            .parse()?
+    if !force
+        && timestamp
+            <= std::fs::read_to_string(SAVE_PATH)
+                .unwrap_or_else(|_| "0".to_string())
+                .parse()?
     {
         return Ok(());
     }
@@ -70,12 +63,11 @@ async fn main() -> color_eyre::Result<()> {
         .select(&Selector::parse("div.bbWrapper").unwrap())
         .next()
         .unwrap();
-
-    let content = if body
+    let content = if let Some(link) = body
         .select(&Selector::parse("div.fauxBlockLink").unwrap())
         .next()
-        .is_some()
     {
+        url = link.attr("data-url").unwrap();
         format_steam(
             &Steam::get_news_for_app(
                 DEADLOCK_APPID,
@@ -91,25 +83,31 @@ async fn main() -> color_eyre::Result<()> {
             .contents,
         )
     } else {
-        format(body)
+        format_html(body)
     };
 
-    let mut req =
-        ExecuteWebhook::new().allowed_mentions(CreateAllowedMentions::new().everyone(true));
+    let mut req = ExecuteWebhook::new()
+        .allowed_mentions(CreateAllowedMentions::new().everyone(true))
+        // FIXME: seemingly doesn't work?
+        // the url is correct. maybe rules about avatar images?
+        .avatar_url(AVATAR_URL);
+    // FIXME: subtract prepends
     req = if content.len() <= 2000 {
-        req.content(format!("@everyone\n\n{content}"))
+        req.content(format!(
+            "{mention} **[Deadlock Patch Notes]({url})**\n\n{content}"
+        ))
+        .flags(MessageFlags::SUPPRESS_EMBEDS)
     } else {
-        req.content("@everyone").embed(
+        req.content(mention).embed(
             CreateEmbed::new()
                 .title(latest.title().unwrap_or("Deadlock Patch Notes"))
-                .description(&content[0..4096])
+                .description(&content[0..4096]) // TODO: truncate with ellipsis
                 .url(url)
                 .timestamp(Timestamp::from_unix_timestamp(timestamp)?)
                 .color(0xEFDEBF),
         )
     };
 
-    #[cfg(debug_assertions)]
     if dry {
         return Ok(());
     }
@@ -117,12 +115,12 @@ async fn main() -> color_eyre::Result<()> {
     std::fs::write(SAVE_PATH, timestamp.to_string())?;
 
     let http = Http::new("");
-    Webhook::from_url(&http, WEBHOOK_URL)
+    Webhook::from_url(&http, &webhook_url)
         .await?
         .execute(&http, true, req)
         .await?;
 
-    println!("Sent");
+    println!("sent");
 
     Ok(())
 }
