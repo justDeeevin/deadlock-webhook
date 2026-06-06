@@ -83,7 +83,7 @@ async fn main() -> color_eyre::Result<()> {
                 DEADLOCK_APPID,
                 None,
                 None,
-                None,
+                Some(1),
                 Some(vec!["steam_community_announcements"]),
             )
             .await?
