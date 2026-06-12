@@ -103,7 +103,7 @@
               ];
               systemd.services.deadlock-webhook = {
                 environment = {
-                  ROLE_ID = cfg.role_id;
+                  ROLE_ID = builtins.toString cfg.role_id;
                   WEBHOOK_URL = lib.mkIf (cfg.webhook_url != null) cfg.webhook_url;
                   WEBHOOK_URL_FILE = lib.mkIf (cfg.webhook_url_file != null) cfg.webhook_url_file;
                 };
