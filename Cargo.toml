@@ -1,12 +1,12 @@
 [package]
 name = "deadlock-webhook"
-version = "1.0.0"
+version = "2.0.0"
 edition = "2024"
 
 [dependencies]
 serenity = "0.12.5"
-tokio = { version = "1.52.3", features = ["macros", "rt"] }
+tokio = { version = "1.53.1", features = ["macros", "rt"] }
 color-eyre = "0.6.5"
 steam-rs = { git = "https://github.com/justdeeevin/steam-rs", branch = "backport-fix-feeds-param" }
-clap = { version = "4.6.1", features = ["derive"] }
-aho-corasick = "1.1.4"
+clap = { version = "4.6.6", features = ["derive"] }
+aho-corasick = "1.1.5"
