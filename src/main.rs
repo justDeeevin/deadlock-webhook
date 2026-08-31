@@ -3,19 +3,16 @@ mod format;
 
 use clap::Parser;
 use cli::Args;
-use format::{format_html, format_steam};
-use rss::Channel;
-use scraper::{Html, Selector};
+use format::format_steam;
 use serenity::{
-    all::MessageFlags,
+    all::{MessageFlags, Timestamp},
     builder::{CreateAllowedMentions, CreateEmbed, ExecuteWebhook},
     http::Http,
-    model::{Timestamp, webhook::Webhook},
+    model::webhook::Webhook,
 };
 use std::{env, fs};
 use steam_rs::Steam;
 
-const RSS_URL: &str = "https://forums.playdeadlock.com/forums/changelog.10/index.rss";
 const AVATAR_URL: &str = "https://project8-data.community.forum/assets/logo_alternate/icon.png";
 const DEADLOCK_APPID: u32 = 1422450;
 const SAVE_PATH: &str = if cfg!(debug_assertions) {
@@ -41,86 +38,61 @@ async fn main() -> color_eyre::Result<()> {
         .transpose()?;
     let args = Args::parse();
 
-    let latest = Channel::read_from(reqwest::get(RSS_URL).await?.bytes().await?.as_ref())?
-        .items
-        .remove(args.index);
-    let mut url = latest.link().unwrap();
-
-    let page = Html::parse_document(&reqwest::get(url).await?.text().await?);
-    let latest_message = page
-        .select(&Selector::parse("div.message-main").unwrap())
-        .next_back()
-        .unwrap();
-
-    let timestamp = latest_message
-        .select(&Selector::parse("time").unwrap())
-        .next()
-        .unwrap()
-        .attr("data-timestamp")
-        .unwrap()
-        .parse()?;
+    let latest = Steam::get_news_for_app(
+        DEADLOCK_APPID,
+        None,
+        None,
+        Some(1),
+        Some(vec!["steam_community_announcements"]),
+    )
+    .await?
+    .newsitems
+    .pop()
+    .expect("No news items");
 
     if !args.force
-        && timestamp
-            <= fs::read_to_string(SAVE_PATH)
-                .unwrap_or_else(|_| "0".to_string())
-                .parse()?
+        && fs::read_to_string(SAVE_PATH)
+            .as_deref()
+            .ok()
+            .and_then(|s| s.parse::<u32>().ok())
+            .unwrap_or_default()
+            == latest.date
     {
         return Ok(());
     }
 
-    let body = latest_message
-        .select(&Selector::parse("div.bbWrapper").unwrap())
-        .next()
-        .unwrap();
-    let content = if let Some(link) = body
-        .select(&Selector::parse("div.fauxBlockLink").unwrap())
-        .next()
-    {
-        url = link.attr("data-url").unwrap();
-        format_steam(
-            &Steam::get_news_for_app(
-                DEADLOCK_APPID,
-                None,
-                None,
-                Some(1),
-                Some(vec!["steam_community_announcements"]),
-            )
-            .await?
-            .newsitems[0]
-                .contents,
-        )
-    } else {
-        format_html(body)
-    };
+    let content = format_steam(&latest.contents);
 
+    let allowed_mentions = CreateAllowedMentions::new();
     let mut req = ExecuteWebhook::new()
         .allowed_mentions(if let Some(id) = role_id {
-            CreateAllowedMentions::new().roles([id])
+            allowed_mentions.roles([id])
         } else {
-            CreateAllowedMentions::new().everyone(true)
+            allowed_mentions.everyone(true)
         })
         .avatar_url(AVATAR_URL);
+
     let mention = if let Some(id) = role_id {
         format!("<@&{id}>")
     } else {
         "@everyone".into()
     };
-    let plain_message_prepend = format!("{mention} **[Deadlock Patch Notes]({url})**\n\n",);
+
+    let plain_message_prepend = format!("{mention} **[{}]({})**\n\n", latest.title, latest.url);
     req = if content.len() <= 2000 - plain_message_prepend.len() {
         req.content(plain_message_prepend + &content)
             .flags(MessageFlags::SUPPRESS_EMBEDS)
     } else {
         req.content(mention).embed(
             CreateEmbed::new()
-                .title(latest.title().unwrap_or("Deadlock Patch Notes"))
+                .title(latest.title)
                 .description(if content.len() <= 4096 {
                     content
                 } else {
                     format!("{}…", &content[..4095])
                 })
-                .url(url)
-                .timestamp(Timestamp::from_unix_timestamp(timestamp)?)
+                .url(latest.url)
+                .timestamp(Timestamp::from_unix_timestamp(latest.date as i64)?)
                 .color(0xEFDEBF),
         )
     };
@@ -129,7 +101,7 @@ async fn main() -> color_eyre::Result<()> {
         return Ok(());
     }
 
-    fs::write(SAVE_PATH, timestamp.to_string())?;
+    fs::write(SAVE_PATH, latest.date.to_string())?;
 
     let http = Http::new("");
     Webhook::from_url(&http, &webhook_url)
