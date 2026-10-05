@@ -116,8 +116,8 @@
               systemd.timers.deadlock-webhook = {
                 wantedBy = [ "timers.target" ];
                 timerConfig = {
-                  OnBootSec = "5min";
-                  OnUnitActiveSec = "5min";
+                  OnBootSec = cfg.period;
+                  OnUnitActiveSec = cfg.period;
                   Persistent = true;
 
                   Unit = "deadlock-webhook.service";
