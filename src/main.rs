@@ -38,17 +38,17 @@ async fn main() -> color_eyre::Result<()> {
         .transpose()?;
     let args = Args::parse();
 
-    let latest = Steam::get_news_for_app(
+    let mut news = Steam::get_news_for_app(
         DEADLOCK_APPID,
         None,
         None,
-        Some(1),
+        Some(args.index as u32 + 1),
         Some(vec!["steam_community_announcements"]),
     )
     .await?
-    .newsitems
-    .pop()
-    .expect("No news items");
+    .newsitems;
+
+    let latest = news.swap_remove(args.index);
 
     if !args.force
         && fs::read_to_string(SAVE_PATH)
